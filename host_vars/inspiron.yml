@@ -1,0 +1,17 @@
+# inspiron, the endpoint: the settings the engineer first set by hand.
+harden_ssh_allow_users:
+  - tom@192.168.12.16
+  - tom@192.168.12.95
+harden_ufw_rules:
+  - { rule: limit, from: 192.168.12.16, port: 22, comment: "SSH from the command center, optiplex-7080" }
+  - { rule: limit, from: 192.168.12.95, port: 22, comment: "SSH backup route: optiplex-7080 wireless" }
+# The K3s agent. inspiron has a wired and a wireless address; the
+# cluster uses the wired one only.
+k3s_node_ip: 192.168.12.14
+k3s_flannel_iface: enp2s0
+k3s_ufw_rules: []
+# Backups to optiplex-9020.
+lab_ip: 192.168.12.14
+backup_repo_host: optiplex-9020
+backup_paths: [/etc, /home/tom]
+backup_excludes: ["/home/tom/.cache"]

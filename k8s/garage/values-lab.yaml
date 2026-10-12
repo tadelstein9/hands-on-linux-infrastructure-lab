@@ -1,0 +1,18 @@
+# The lab's own object storage, Garage v2.4.1, one node, on optiplex-9020.
+# optiplex-9020 is reserved; Garage asks for it by name and tolerates the mark.
+# Chart from the v2.4.1 tag of github.com/deuxfleurs-org/garage, script/helm/garage
+# (source tarball sha256 in chart-source.sha256).
+garage:
+  singleNode: true
+persistence:
+  meta:
+    size: 1Gi
+  data:
+    size: 20Gi
+nodeSelector:
+  kubernetes.io/hostname: optiplex-9020
+tolerations:
+  - key: lab/reserved
+    operator: Equal
+    value: "true"
+    effect: NoSchedule

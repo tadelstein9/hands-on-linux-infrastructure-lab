@@ -1,0 +1,6 @@
+- name: Restart dovecot
+  ansible.builtin.systemd: {name: dovecot, state: restarted}
+- name: Reload postfix
+  ansible.builtin.systemd: {name: postfix, state: reloaded}
+- name: Restart sssd
+  ansible.builtin.systemd: {name: sssd, state: restarted}

@@ -1,0 +1,75 @@
+- name: The server's settings
+  ansible.builtin.template:
+    src: config-server.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    mode: "0600"
+
+- name: A token for agents, made once, readable by root only
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.password', '/dev/null', length=40, chars=['ascii_lowercase', 'digits']) }}\n"
+    dest: /etc/rancher/k3s/agent-token
+    mode: "0600"
+    force: false
+  no_log: true
+
+- name: Install the K3s server
+  ansible.builtin.command: /root/k3s-install.sh
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: server
+  args:
+    creates: /usr/local/bin/k3s
+
+- name: Wait for the server to write the agents' join token
+  ansible.builtin.wait_for:
+    path: /var/lib/rancher/k3s/server/agent-token
+    timeout: 180
+  when: not ansible_check_mode
+
+- name: Read the join token for this run only (it is never written on optiplex-7080)
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/k3s/server/agent-token
+  register: k3s_agent_token_file
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Hold the join token for the agent's play
+  ansible.builtin.set_fact:
+    k3s_agent_join_token: "{{ k3s_agent_token_file.content | b64decode | trim }}"
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Read the cluster's admin file
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/k3s.yaml
+  register: k3s_kubeconfig
+  no_log: true
+  when: not ansible_check_mode
+
+- name: A folder for kubectl's settings on optiplex-7080
+  ansible.builtin.file:
+    path: "{{ lookup('env', 'HOME') }}/.kube"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: The admin file on optiplex-7080, owner-only, pointed at the server's address
+  ansible.builtin.copy:
+    content: "{{ k3s_kubeconfig.content | b64decode | replace('https://127.0.0.1:6443', 'https://' ~ k3s_server_ip ~ ':6443') }}"
+    dest: "{{ lookup('env', 'HOME') }}/.kube/config"
+    mode: "0600"
+    backup: true
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: not ansible_check_mode
+
+- name: kubectl on optiplex-7080, checked against the release's checksum
+  ansible.builtin.get_url:
+    url: "{{ k3s_kubectl_url }}"
+    dest: "{{ lookup('env', 'HOME') }}/.local/bin/kubectl"
+    checksum: "sha256:{{ k3s_kubectl_sha256 }}"
+    mode: "0755"
+  delegate_to: localhost
+  become: false

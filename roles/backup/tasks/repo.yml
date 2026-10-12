@@ -1,0 +1,64 @@
+# A computer that holds other computers' backups: an account for restic, a folder
+# per client, and SSH and UFW opened to exactly those clients. An undo command
+# comes first, because this changes who can reach the computer.
+
+- name: Save UFW's settings before this run
+  ansible.builtin.shell: |
+    set -e
+    rm -rf /root/before-backup-run && mkdir -p /root/before-backup-run
+    cp -a /etc/ufw /root/before-backup-run/
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Write the undo command
+  ansible.builtin.template:
+    src: lab-backup-undo.sh.j2
+    dest: /root/lab-backup-undo.sh
+    mode: "0700"
+  when: not ansible_check_mode
+
+- name: Schedule the undo command
+  ansible.builtin.shell: |
+    systemctl stop lab-backup-rollback.timer 2>/dev/null || true
+    systemctl reset-failed lab-backup-rollback.service 2>/dev/null || true
+    systemd-run --on-active={{ backup_undo_minutes * 60 }} --unit=lab-backup-rollback /bin/sh /root/lab-backup-undo.sh
+  when: not ansible_check_mode
+
+- name: An account that only receives backups
+  ansible.builtin.user:
+    name: restic
+    system: true
+    home: "{{ backup_repo_root }}"
+    create_home: true
+    shell: /bin/bash
+    password_lock: true
+
+- name: The backup folder, the restic account's alone
+  ansible.builtin.file:
+    path: "{{ backup_repo_root }}"
+    state: directory
+    owner: restic
+    group: restic
+    mode: "0700"
+
+- name: SSH lets the restic account in from the clients
+  ansible.builtin.template:
+    src: 20-lab-backup.conf.j2
+    dest: /etc/ssh/sshd_config.d/20-lab-backup.conf
+    mode: "0644"
+  notify: Reload SSH
+
+- name: Check SSH's whole configuration before any reload
+  ansible.builtin.command: sshd -t
+  changed_when: false
+
+- name: Firewall rules for clients UFW does not admit yet
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item.from }}"
+    to_port: "22"
+    proto: tcp
+    comment: "{{ item.comment }}"
+  loop: "{{ backup_ufw_rules }}"
+  loop_control:
+    label: "{{ item.comment }}"

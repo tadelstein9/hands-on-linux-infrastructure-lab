@@ -1,0 +1,95 @@
+# Put K3s on a computer: the server on precision, agents on the others. An undo
+# command is scheduled before anything changes. On a computer this run installs,
+# it takes K3s off; on every computer it puts UFW back as it stood before this run.
+
+- name: Is K3s already on this computer?
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_before
+
+- name: Save UFW's settings before this run (the first install's copy stays in /root/before-k3s)
+  ansible.builtin.shell: |
+    set -e
+    [ -e /root/before-k3s/ufw ] || { mkdir -p /root/before-k3s; cp -a /etc/ufw /root/before-k3s/; }
+    rm -rf /root/before-k3s-run && mkdir -p /root/before-k3s-run
+    cp -a /etc/ufw /root/before-k3s-run/
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Write the undo command
+  ansible.builtin.template:
+    src: lab-k3s-undo.sh.j2
+    dest: /root/lab-k3s-undo.sh
+    mode: "0700"
+  when: not ansible_check_mode
+
+- name: Schedule the undo command
+  ansible.builtin.shell: |
+    systemctl stop lab-k3s-rollback.timer 2>/dev/null || true
+    systemctl reset-failed lab-k3s-rollback.service 2>/dev/null || true
+    systemd-run --on-active={{ k3s_undo_minutes * 60 }} --unit=lab-k3s-rollback /bin/sh /root/lab-k3s-undo.sh
+  when: not ansible_check_mode
+
+- name: Cluster traffic from every other node (Flannel VXLAN and the kubelet)
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ hostvars[item.0].k3s_node_ip }}"
+    to_port: "{{ item.1.port }}"
+    proto: "{{ item.1.proto }}"
+    comment: "{{ item.1.what }} from {{ item.0 }}"
+  loop: "{{ (groups['k3s'] | difference([inventory_hostname])) | product([{'port': '8472', 'proto': 'udp', 'what': 'Flannel VXLAN'}, {'port': '10250', 'proto': 'tcp', 'what': 'kubelet'}]) | list }}"
+  loop_control:
+    label: "{{ item.1.what }} from {{ item.0 }}"
+
+- name: The K3s API on the server, from every agent
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ hostvars[item].k3s_node_ip }}"
+    to_port: "6443"
+    proto: tcp
+    comment: "K3s API: the agent, {{ item }}"
+  loop: "{{ groups['k3s_agent'] }}"
+  when: inventory_hostname in groups['k3s_server']
+
+- name: Pods and services talking to this node
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item.from }}"
+    comment: "{{ item.comment }}"
+  loop:
+    - { from: 10.42.0.0/16, comment: "K3s pods" }
+    - { from: 10.43.0.0/16, comment: "K3s services" }
+  loop_control:
+    label: "{{ item.comment }}"
+
+- name: Other rules this computer needs for the cluster (host_vars)
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item.from }}"
+    to_port: "{{ item.port | default(omit) }}"
+    proto: "{{ item.proto | default('any') }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ k3s_ufw_rules }}"
+  loop_control:
+    label: "{{ item.comment }}"
+
+- name: A folder for K3s's settings
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: "0755"
+
+- name: Fetch the installer from the release's tag and check it
+  ansible.builtin.get_url:
+    url: "{{ k3s_install_url }}"
+    dest: /root/k3s-install.sh
+    checksum: "sha256:{{ k3s_install_sha256 }}"
+    mode: "0700"
+
+- name: The server's part
+  ansible.builtin.include_tasks: server.yml
+  when: inventory_hostname in groups['k3s_server']
+
+- name: The agent's part
+  ansible.builtin.include_tasks: agent.yml
+  when: inventory_hostname in groups['k3s_agent']

@@ -1,0 +1,56 @@
+# Mail, part 1, on the domain controller: a DNS name for the mail server and two
+# staff test accounts. Passwords never reach the screen or a log: the Administrator
+# password comes from optiplex-9020's vault, and each test password is made on the
+# command center and kept in ~/.config/lab-ansible/mail-test/, mode 600, outside Git.
+#   ansible-playbook mail-accounts.yml --check -K     then    ansible-playbook mail-accounts.yml -K
+- name: Mail server name and staff test accounts in the domain
+  hosts: optiplex-9020
+  become: true
+  vars:
+    mail_host: mail
+    mail_ip: 192.168.12.17
+    staff: [rquarles, aholloway]
+  tasks:
+    - name: Does the mail name already resolve?
+      ansible.builtin.command: host {{ mail_host }}.lab.internal 127.0.0.1
+      register: dns_now
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Add mail.lab.internal to the domain's DNS
+      ansible.builtin.command:
+        argv: [samba-tool, dns, add, 127.0.0.1, lab.internal, "{{ mail_host }}", A, "{{ mail_ip }}",
+               -U, Administrator, "--password={{ vault_samba_admin_password }}"]
+      when: dns_now.rc != 0
+      no_log: true
+
+    - name: Which staff accounts exist already?
+      ansible.builtin.command: samba-tool user list
+      register: users_now
+      changed_when: false
+      check_mode: false
+
+    - name: Create each staff test account, password made on the command center
+      ansible.builtin.command:
+        argv: [samba-tool, user, add, "{{ item }}",
+               "{{ lookup('ansible.builtin.password', '~/.config/lab-ansible/mail-test/' + item + ' chars=ascii_letters,digits length=20') }}"]
+      loop: "{{ staff }}"
+      when: item not in users_now.stdout_lines
+      no_log: true
+
+    - name: Test accounts do not expire
+      ansible.builtin.command: samba-tool user setexpiry {{ item }} --noexpiry
+      loop: "{{ staff }}"
+      when: item not in users_now.stdout_lines
+
+    - name: Show what the domain holds now
+      ansible.builtin.shell: host {{ mail_host }}.lab.internal 127.0.0.1 | tail -1; samba-tool user list | grep -E '^({{ staff | join('|') }})$'
+      register: after
+      changed_when: false
+      failed_when: false        # in check mode nothing was added yet, so the search comes back empty
+      check_mode: false
+
+    - name: Report
+      ansible.builtin.debug:
+        var: after.stdout_lines

@@ -1,0 +1,43 @@
+# optiplex-9020, the domain controller and Git server. Who logged in, 1-29 Sept 2026:
+# tom from optiplex-7080; git from optiplex-7080 and inspiron. SSH uses allow, not limit:
+# Git and Ansible open connections in bursts.
+harden_ssh_allow_users:
+  - tom@192.168.12.16
+  - tom@192.168.12.95
+  - git@192.168.12.16
+  - git@192.168.12.95
+  - git@192.168.12.14
+harden_ufw_rules:
+  - { rule: allow, from: 192.168.12.16, port: 22, comment: "SSH from the command center, optiplex-7080" }
+  - { rule: allow, from: 192.168.12.95, port: 22, comment: "SSH backup route: optiplex-7080 wireless" }
+  - { rule: allow, from: 192.168.12.14, port: 22, comment: "Git from inspiron" }
+  - { rule: allow, from: 192.168.12.0/24, port: 53, proto: tcp, comment: "Domain: DNS" }
+  - { rule: allow, from: 192.168.12.0/24, port: 53, proto: udp, comment: "Domain: DNS" }
+  - { rule: allow, from: 192.168.12.0/24, port: 88, proto: tcp, comment: "Domain: Kerberos" }
+  - { rule: allow, from: 192.168.12.0/24, port: 88, proto: udp, comment: "Domain: Kerberos" }
+  - { rule: allow, from: 192.168.12.0/24, port: 123, proto: udp, comment: "Domain: time (chrony)" }
+  - { rule: allow, from: 192.168.12.0/24, port: 135, proto: tcp, comment: "Domain: RPC" }
+  - { rule: allow, from: 192.168.12.0/24, port: 389, proto: tcp, comment: "Domain: LDAP" }
+  - { rule: allow, from: 192.168.12.0/24, port: 389, proto: udp, comment: "Domain: LDAP ping" }
+  - { rule: allow, from: 192.168.12.0/24, port: 445, proto: tcp, comment: "Domain: SMB" }
+  - { rule: allow, from: 192.168.12.0/24, port: 464, proto: tcp, comment: "Domain: Kerberos password" }
+  - { rule: allow, from: 192.168.12.0/24, port: 464, proto: udp, comment: "Domain: Kerberos password" }
+  - { rule: allow, from: 192.168.12.0/24, port: 636, proto: tcp, comment: "Domain: LDAP over TLS" }
+  - { rule: allow, from: 192.168.12.0/24, port: "3268:3269", proto: tcp, comment: "Domain: global catalog" }
+  - { rule: allow, from: 192.168.12.0/24, port: "49152:65535", proto: tcp, comment: "Domain: RPC dynamic ports" }
+# A reserved K3s agent. optiplex-9020 keeps the domain and Git; the cluster
+# places work here only when a manifest asks for it.
+k3s_node_ip: 192.168.12.15
+k3s_flannel_iface: eno1
+k3s_reserved: true
+k3s_ufw_rules: []
+# optiplex-9020 backs up to precision, and holds the backups of inspiron,
+# optiplex-7080 and precision. precision is the one client UFW does not admit yet.
+lab_ip: 192.168.12.15
+backup_repo_host: precision
+backup_pre: samba
+# /var/lib/rancher/k3s/storage holds Garage's data (Velero's backups).
+backup_paths: [/etc, /srv/git, /var/backups/samba, /var/lib/rancher/k3s/storage]
+backup_ssh_allow: [restic@192.168.12.14, restic@192.168.12.16, restic@192.168.12.17]
+backup_ufw_rules:
+  - { from: 192.168.12.17, comment: "restic backups from precision" }

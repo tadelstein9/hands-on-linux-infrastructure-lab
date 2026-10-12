@@ -1,0 +1,15 @@
+# The lab watches itself; alerts stay on Alertmanager's page.
+#   cd ~/lab-ansible && ansible-playbook monitor.yml -K --check
+- name: Every computer reports its numbers
+  hosts: backup_client
+  become: true
+  tasks:
+    - name: Node exporter and lab metrics
+      ansible.builtin.include_role: { name: monitor, tasks_from: exporter }
+
+- name: The monitor server watches and alerts
+  hosts: optiplex-9020
+  become: true
+  tasks:
+    - name: Prometheus and Alertmanager
+      ansible.builtin.include_role: { name: monitor, tasks_from: server }

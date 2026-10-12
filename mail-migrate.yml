@@ -1,0 +1,60 @@
+# Mail, part 3: copy one mailbox from the old server to the new one with Dovecot's own
+# tool, doveadm import over its IMAP client (imapc), then count both sides.
+# The "old server" is a stand-in: a second Dovecot on 127.0.0.1:10143 holding a synthetic
+# mailbox. The stand-in's password is made on the command center, mode 600, outside Git.
+#   ansible-playbook mail-migrate.yml -K
+- name: Move one staff mailbox from the old server to the new
+  hosts: precision
+  become: true
+  vars:
+    old_user: oldquarles
+    new_user: rquarles@lab.internal
+    old_pw: "{{ lookup('ansible.builtin.password', '~/.config/lab-ansible/mail-test/oldquarles chars=ascii_letters,digits length=20') }}"
+  tasks:
+    - name: Write the synthetic mailbox for the stand-in old server
+      ansible.builtin.script: roles/mail/files/make_old_mail.py /srv/oldmail/Maildir
+      args: {creates: /srv/oldmail/Maildir/cur, executable: python3}
+    - name: The stand-in's files belong to vmail
+      ansible.builtin.file: {path: /srv/oldmail, owner: vmail, group: vmail, recurse: true}
+    - name: The stand-in old server has a folder of its own
+      ansible.builtin.file: {path: /etc/dovecot-old, state: directory, mode: "0755"}
+    - name: The stand-in's settings
+      ansible.builtin.template: {src: roles/mail/templates/dovecot-old.conf.j2, dest: /etc/dovecot-old/dovecot.conf}
+      register: oldconf
+      ignore_errors: "{{ ansible_check_mode }}"
+    - name: The stand-in's one account
+      ansible.builtin.copy: {content: "{{ old_user }}:{PLAIN}{{ old_pw }}\n", dest: /etc/dovecot-old/users, owner: root, group: dovecot, mode: "0640"}
+      no_log: true
+    - name: Start the stand-in old server
+      ansible.builtin.command: systemd-run --unit=lab-oldmail /usr/sbin/dovecot -F -c /etc/dovecot-old/dovecot.conf
+      register: oldsrv
+      failed_when: oldsrv.rc != 0 and 'already' not in oldsrv.stderr
+    - name: Messages per folder on the old server
+      ansible.builtin.shell: sleep 2; doveadm -c /etc/dovecot-old/dovecot.conf mailbox status -u {{ old_user }} messages '*'
+      register: before
+      changed_when: false
+    # import adds the old messages to the new mailbox and keeps what it holds. (backup -R makes
+    # a mirror: it deletes messages the old server lacks, then fails on INBOX. Learned the hard way.)
+    - name: Copy the mailbox (doveadm import over imapc), subscribing each folder
+      ansible.builtin.command:
+        argv: [doveadm, -o, imapc_host=127.0.0.1, -o, imapc_port=10143, -o, "imapc_user={{ old_user }}",
+               -o, "imapc_password={{ old_pw }}", -o, "imapc_features=rfc822.size fetch-headers",
+               import, -u, "{{ new_user }}", -s, "imapc:", "", all]
+      register: move
+      failed_when: false
+      no_log: true
+    - name: What the move reported (the password blanked out)
+      ansible.builtin.debug:
+        msg: "rc={{ move.rc }} {{ (move.stderr | default('')) | replace(old_pw, '(password)') }}"
+    - name: Stop if the move failed
+      ansible.builtin.fail: {msg: "The move did not finish; see the line above."}
+      when: move.rc != 0
+    - name: Messages per folder on the new server
+      ansible.builtin.command: doveadm mailbox status -u {{ new_user }} messages '*'
+      register: after
+      changed_when: false
+    - name: Stop the stand-in old server
+      ansible.builtin.systemd: {name: lab-oldmail, state: stopped}
+    - name: Report both sides
+      ansible.builtin.debug:
+        msg: "{{ ['OLD server (' + old_user + '):'] + before.stdout_lines + ['NEW server (' + new_user + '):'] + after.stdout_lines }}"

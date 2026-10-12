@@ -1,0 +1,8 @@
+# Who may log in over SSH, as user@address. Each computer overrides this in host_vars.
+harden_ssh_allow_users:
+  - tom@192.168.12.16
+  - tom@192.168.12.95
+# Firewall rules this computer needs, besides the defaults (deny in, allow out).
+harden_ufw_rules: []
+# Minutes before the undo command puts SSH and UFW back as they were.
+harden_undo_minutes: 10

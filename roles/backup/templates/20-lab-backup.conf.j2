@@ -1,0 +1,4 @@
+# The restic account may log in from the computers that back up here.
+# Its key options in authorized_keys limit it to file transfer (internal-sftp).
+# Written by Ansible (role backup). AllowUsers appends to the list in 10-lab-hardening.conf.
+AllowUsers {{ backup_ssh_allow | join(' ') }}

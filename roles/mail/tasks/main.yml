@@ -1,0 +1,128 @@
+# Mail for the domain, the safe way: save what changes, schedule the undo, then build.
+
+- name: Answer Postfix's install questions ahead of time
+  ansible.builtin.debconf: {name: postfix, question: "{{ item.q }}", value: "{{ item.v }}", vtype: "{{ item.t }}"}
+  loop:
+    - {q: postfix/main_mailer_type, v: "Internet Site", t: select}
+    - {q: postfix/mailname, v: "{{ mail_fqdn }}", t: string}
+
+- name: Install Postfix, Dovecot (IMAP and LMTP) and swaks, the test mailer
+  ansible.builtin.apt:
+    name: [postfix, dovecot-imapd, dovecot-lmtpd, swaks]
+    update_cache: true
+
+- name: Save Dovecot's auth file before changing it
+  ansible.builtin.shell: mkdir -p /root/before-mail && cp -n /etc/dovecot/conf.d/10-auth.conf /root/before-mail/
+  args: {creates: /root/before-mail/10-auth.conf}
+
+- name: Install the undo script
+  ansible.builtin.copy: {src: lab-mail-undo.sh, dest: /usr/local/sbin/lab-mail-undo.sh, mode: "0700"}
+
+- name: Schedule the undo before any change
+  ansible.builtin.command: systemd-run --on-active={{ mail_undo_minutes * 60 }} --unit=lab-mail-rollback /usr/local/sbin/lab-mail-undo.sh
+  register: undo
+  changed_when: true
+  failed_when: undo.rc != 0 and 'already' not in undo.stderr
+
+- name: A system account owns the mail
+  ansible.builtin.user: {name: vmail, system: true, home: /var/vmail, create_home: true, shell: /usr/sbin/nologin}
+
+- name: The lab's own certificate for {{ mail_fqdn }}
+  ansible.builtin.command: >
+    openssl req -x509 -newkey rsa:3072 -nodes -days 825
+    -subj /CN={{ mail_fqdn }} -addext subjectAltName=DNS:{{ mail_fqdn }}
+    -keyout /etc/dovecot/private/mail.key -out /etc/dovecot/private/mail.crt
+  args: {creates: /etc/dovecot/private/mail.crt}
+
+- name: The key stays root's
+  ansible.builtin.file: {path: /etc/dovecot/private/mail.key, mode: "0600", owner: root, group: root}
+  ignore_errors: "{{ ansible_check_mode }}"   # in check mode the packages are not installed yet
+
+
+- name: Stop Dovecot reading the system auth file (local.conf defines auth instead)
+  ansible.builtin.replace:
+    path: /etc/dovecot/conf.d/10-auth.conf
+    regexp: '^!include auth-system\.conf\.ext'
+    replace: '#!include auth-system.conf.ext'
+  notify: Restart dovecot
+  ignore_errors: "{{ ansible_check_mode }}"   # in check mode the packages are not installed yet
+
+
+- name: Dovecot's settings for the domain
+  ansible.builtin.template: {src: local.conf.j2, dest: /etc/dovecot/local.conf, mode: "0644"}
+  notify: Restart dovecot
+  ignore_errors: "{{ ansible_check_mode }}"   # in check mode the packages are not installed yet
+
+
+- name: Postfix settings for the domain
+  ansible.builtin.command: postconf -e {{ item }}
+  loop:
+    - "myhostname={{ mail_fqdn }}"
+    - "mydomain={{ mail_domain }}"
+    - "myorigin={{ mail_domain }}"
+    - "mydestination=localhost"
+    - "inet_interfaces=all"
+    - "mynetworks=127.0.0.0/8"
+    - "virtual_mailbox_domains={{ mail_domain }}"
+    - "virtual_transport=lmtp:unix:private/dovecot-lmtp"
+    - "smtpd_tls_cert_file=/etc/dovecot/private/mail.crt"
+    - "smtpd_tls_key_file=/etc/dovecot/private/mail.key"
+    - "smtpd_tls_security_level=may"
+    - "smtpd_sasl_type=dovecot"
+    - "smtpd_sasl_path=private/auth"
+  changed_when: true
+  notify: Reload postfix
+  ignore_errors: "{{ ansible_check_mode }}"   # in check mode the packages are not installed yet
+
+
+- name: The submission port, 587, takes mail only after TLS and a domain password
+  ansible.builtin.command: postconf -M submission/inet="submission inet n - y - - smtpd"
+  changed_when: true
+  notify: Reload postfix
+  ignore_errors: "{{ ansible_check_mode }}"   # in check mode the packages are not installed yet
+
+
+- name: Submission's own rules
+  ansible.builtin.command: postconf -P {{ item }}
+  loop:
+    - "submission/inet/syslog_name=postfix/submission"
+    - "submission/inet/smtpd_tls_security_level=encrypt"
+    - "submission/inet/smtpd_sasl_auth_enable=yes"
+    - "submission/inet/smtpd_recipient_restrictions=permit_sasl_authenticated,reject"
+  changed_when: true
+  notify: Reload postfix
+  ignore_errors: "{{ ansible_check_mode }}"   # in check mode the packages are not installed yet
+
+
+- name: Save SSSD's settings before changing them
+  ansible.builtin.shell: mkdir -p /root/before-mail && cp -n /etc/sssd/sssd.conf /root/before-mail/
+  args: {creates: /root/before-mail/sssd.conf}
+
+- name: Let the domain's access rules treat Dovecot as a network login (sssd-ad, ad_gpo_map_network)
+  community.general.ini_file:
+    path: /etc/sssd/sssd.conf
+    section: "domain/{{ mail_domain }}"
+    option: ad_gpo_map_network
+    value: "+dovecot"
+    mode: "0600"
+  notify: Restart sssd
+
+- name: Check Postfix's settings before any reload
+  ansible.builtin.command: postfix check
+  changed_when: false
+  ignore_errors: "{{ ansible_check_mode }}"   # in check mode the packages are not installed yet
+
+
+- name: Open SMTP, submission and IMAPS to the lab network only
+  community.general.ufw: {rule: allow, src: "{{ mail_lan }}", port: "{{ item }}", proto: tcp, comment: "mail, Chapter 7"}
+  loop: ["25", "587", "993"]
+
+- name: Start the services now, and at every boot
+  ansible.builtin.systemd: {name: "{{ item }}", state: started, enabled: true}
+  loop: [dovecot, postfix]
+  ignore_errors: "{{ ansible_check_mode }}"   # in check mode the packages are not installed yet
+
+
+- name: Tell the operator how to keep it
+  ansible.builtin.debug:
+    msg: "Test now. If mail works, cancel the undo within {{ mail_undo_minutes }} minutes: sudo systemctl stop lab-mail-rollback.timer"

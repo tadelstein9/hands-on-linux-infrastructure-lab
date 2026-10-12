@@ -1,0 +1,6 @@
+#!/bin/sh
+# Undo the backup role's access changes on {{ inventory_hostname }}: SSH and UFW as before this run.
+rm -f /etc/ssh/sshd_config.d/20-lab-backup.conf
+cp -a /root/before-backup-run/ufw/. /etc/ufw/
+ufw reload
+systemctl reload ssh

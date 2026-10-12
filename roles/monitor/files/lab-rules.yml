@@ -1,0 +1,41 @@
+# What needs attention. Written by Ansible (role monitor).
+# Every alert shows on Alertmanager's page; the lab sends nothing out.
+# optiplex-7080 sleeps at night, so nothing alerts when it goes quiet.
+groups:
+  - name: lab
+    rules:
+      - alert: ComputerDown
+        expr: up{job="node", host!="optiplex-7080"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "{{ $labels.host }} stopped answering" }
+      - alert: InternetDown
+        expr: lab_internet_up == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations: { summary: "{{ $labels.host }} cannot reach the Internet" }
+      - alert: BackupFailed
+        expr: lab_backup_ok == 0
+        for: 10m
+        labels: { severity: critical }
+        annotations: { summary: "{{ $labels.host }}: the last backup failed" }
+      - alert: BackupLate
+        expr: time() - lab_backup_last_run_seconds > 30 * 3600
+        for: 30m
+        labels: { severity: critical }
+        annotations: { summary: "{{ $labels.host }}: no backup in 30 hours" }
+      - alert: InferenceServerDown
+        expr: lab_ollama_up == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "the inference server on {{ $labels.host }} stopped answering" }
+      - alert: ClusterNodeNotReady
+        expr: lab_k3s_required_ready < lab_k3s_required_total
+        for: 10m
+        labels: { severity: critical }
+        annotations: { summary: "a cluster node is not Ready" }
+      - alert: DiskFilling
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.20
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: "{{ $labels.host }}: less than 20% of the disk free" }

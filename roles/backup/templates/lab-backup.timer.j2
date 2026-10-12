@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly lab backup of {{ inventory_hostname }}
+
+[Timer]
+OnCalendar={{ backup_on_calendar }}
+RandomizedDelaySec=45min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

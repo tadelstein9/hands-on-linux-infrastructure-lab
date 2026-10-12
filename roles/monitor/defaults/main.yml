@@ -1,0 +1,7 @@
+# The lab watches itself. Prometheus and Alertmanager run on the
+# computer named here; every computer runs the node exporter.
+monitor_server: optiplex-9020
+# A page on the web the lab expects to reach; Debian's mirror answers everywhere.
+monitor_internet_probe: https://deb.debian.org/
+# The cluster nodes that must be Ready; optiplex-7080 sleeps at night and is left out.
+monitor_k3s_required: [inspiron, optiplex-9020, precision]

@@ -1,0 +1,9 @@
+# K3s server on {{ inventory_hostname }}. Written by the lab's k3s role.
+node-ip: {{ k3s_node_ip }}
+flannel-iface: {{ k3s_flannel_iface }}
+write-kubeconfig-mode: "0600"
+tls-san:
+  - {{ k3s_node_ip }}
+  - {{ inventory_hostname }}
+# Agents join with their own token, which cannot join a server.
+agent-token-file: /etc/rancher/k3s/agent-token

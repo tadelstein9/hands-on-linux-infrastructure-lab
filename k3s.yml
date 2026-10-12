@@ -1,0 +1,48 @@
+# The lab's own cloud: K3s, the server on precision, agents on inspiron, optiplex-9020
+# and optiplex-7080 (the last two reserved).
+# Run it with --check first; that run reports and changes nothing.
+#   ansible-playbook k3s.yml -K --check > f 2>&1 </dev/null
+# Before any change, each computer schedules an undo command (15 minutes).
+- name: The K3s server
+  hosts: k3s_server
+  become: true
+  roles:
+    - k3s
+
+- name: The K3s agents join the server
+  hosts: k3s_agent
+  become: true
+  roles:
+    - k3s
+
+- name: Prove the cluster, and prove optiplex-9020 still reaches out through inspiron
+  hosts: k3s_server
+  become: true
+  tasks:
+    - name: Every computer in the cluster reports Ready
+      ansible.builtin.command: k3s kubectl get nodes -o wide
+      register: k3s_nodes
+      until: k3s_nodes.stdout_lines[1:] | select('search', ' Ready ') | list | length == groups['k3s'] | length
+      retries: 30
+      delay: 10
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Show the nodes
+      ansible.builtin.debug:
+        var: k3s_nodes.stdout_lines
+      when: not ansible_check_mode
+
+    - name: optiplex-9020 reaches the Internet through inspiron, as before
+      ansible.builtin.command: curl -sS -o /dev/null -w '%{http_code}' http://archive.ubuntu.com/ubuntu/
+      delegate_to: optiplex-9020
+      become: false
+      register: k3s_optiplex9020_out
+      changed_when: false
+
+    - name: Say how to keep the change
+      ansible.builtin.debug:
+        msg: >-
+          optiplex-9020 answered {{ k3s_optiplex9020_out.stdout | default('(check mode)', true) }}.
+          Prove a new SSH login from optiplex-7080 to precision, inspiron and optiplex-9020, then
+          cancel the undo command on all four: sudo systemctl stop lab-k3s-rollback.timer

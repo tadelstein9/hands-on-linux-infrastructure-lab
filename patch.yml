@@ -1,0 +1,9 @@
+# Patch the lab. Run it with --check first; that run reports and changes nothing.
+#   ansible-playbook patch.yml -K --check      (report only)
+#   ansible-playbook patch.yml -K --limit inspiron   (patch one computer)
+# No task here reboots a computer.
+- name: Patch the lab
+  hosts: lab
+  become: true
+  roles:
+    - patch

@@ -1,0 +1,9 @@
+# Mail, part 2: Postfix and Dovecot on the Precision 3640 (precision) for lab.internal.
+# Postfix accepts mail and hands each message for lab.internal to Dovecot over LMTP;
+# Dovecot checks passwords against the domain through PAM and SSSD and serves IMAP
+# over TLS on 993 only. Before it changes anything, the role schedules an undo.
+#   ansible-playbook mail.yml --check -K     then    ansible-playbook mail.yml -K
+- name: Mail server for lab.internal
+  hosts: precision
+  become: true
+  roles: [mail]

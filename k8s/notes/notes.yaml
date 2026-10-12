@@ -1,0 +1,56 @@
+# Storage that outlives the program using it. A claim for 1 GiB of
+# K3s's local-path storage, and one copy of a small program that keeps it mounted
+# at /data. Delete the program and a new copy finds the same files.
+# Local-path storage lives on one computer's disk, so the program can run only
+# on the computer that holds its files. Deleting the claim deletes the files.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes
+  namespace: lab
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes
+  namespace: lab
+spec:
+  replicas: 1
+  # Stop the old copy before starting the new one: one copy holds the files at a time.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: notes }
+  template:
+    metadata:
+      labels: { app: notes }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: shell
+          # busybox 1.37.0, pinned by digest (Docker Hub, 23 Sept 2026).
+          image: busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+          command: ["sh", "-c", "sleep 2147483647"]
+          volumeMounts:
+            - name: notes
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 5m, memory: 8Mi }
+            limits: { memory: 32Mi }
+      volumes:
+        - name: notes
+          persistentVolumeClaim:
+            claimName: notes

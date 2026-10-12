@@ -1,0 +1,16 @@
+# Where each computer keeps its restic repositories when it hosts them.
+backup_repo_root: /srv/restic
+# Retention: what `restic forget --prune` keeps after each nightly run.
+backup_keep_daily: 7
+backup_keep_weekly: 4
+backup_keep_monthly: 6
+# Nightly start; each computer adds up to 45 minutes of random delay.
+backup_on_calendar: "*-*-* 02:30:00"
+# Paths and extra rules each computer sets in host_vars.
+backup_paths: []
+backup_excludes: []
+backup_pre: none
+backup_ssh_allow: []
+backup_ufw_rules: []
+# Minutes before the undo command puts SSH and UFW back on a repository host.
+backup_undo_minutes: 15

@@ -1,0 +1,15 @@
+# The K3s release the lab runs: the stable channel on 30 September 2026.
+k3s_version: v1.36.4+k3s1
+# The installer from that release's own tag, checked against the copy read on 30 Sept.
+k3s_install_url: https://raw.githubusercontent.com/k3s-io/k3s/v1.36.4%2Bk3s1/install.sh
+k3s_install_sha256: 46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+# The server's address, for the agent to join and for kubectl on optiplex-7080.
+k3s_server_ip: 192.168.12.17
+# Firewall rules this computer needs for the cluster. Each computer sets its own in host_vars.
+k3s_ufw_rules: []
+# Minutes before the undo command takes K3s off and puts UFW back as it was.
+# The download and the join take a few minutes, so this runs longer than harden's.
+k3s_undo_minutes: 15
+# kubectl for the command center, the same Kubernetes release K3s carries.
+k3s_kubectl_url: https://dl.k8s.io/release/v1.36.4/bin/linux/amd64/kubectl
+k3s_kubectl_sha256: 8b8f088da2dab964f853b38464033b1be15ede2839eca751482357c45abdd05a

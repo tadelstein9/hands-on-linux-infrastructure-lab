@@ -1,0 +1,22 @@
+# UFW does not guard what Traefik publishes.
+# Traefik's own service admits only the command center and the two nodes, and
+# opens no NodePort: ServiceLB forwards to the service's cluster address, so the
+# NodePorts (open on every node, outside the address list) are not needed.
+# On a service that already has NodePorts, Kubernetes keeps them; on 30 Sept
+# they were removed once by hand:
+#   kubectl -n kube-system patch svc traefik --type=json -p '[{"op":"remove","path":"/spec/ports/0/nodePort"},{"op":"remove","path":"/spec/ports/1/nodePort"}]'
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      spec:
+        allocateLoadBalancerNodePorts: false
+        loadBalancerSourceRanges:
+          - 192.168.12.16/32   # optiplex-7080, the command center
+          - 192.168.12.95/32   # optiplex-7080 wireless
+          - 192.168.12.14/32   # inspiron
+          - 192.168.12.17/32   # precision

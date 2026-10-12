@@ -1,0 +1,13 @@
+#!/bin/sh
+# Undo this run of the k3s role on {{ inventory_hostname }}.
+{% if not k3s_before.stat.exists %}
+# This run installed K3s here, so take it off.
+[ -x /usr/local/bin/k3s-uninstall.sh ] && /usr/local/bin/k3s-uninstall.sh
+[ -x /usr/local/bin/k3s-agent-uninstall.sh ] && /usr/local/bin/k3s-agent-uninstall.sh
+rm -rf /etc/rancher/k3s
+{% else %}
+# K3s was here before this run; leave it running.
+{% endif %}
+# Put UFW back as it stood before this run.
+cp -a /root/before-k3s-run/ufw/. /etc/ufw/
+ufw reload

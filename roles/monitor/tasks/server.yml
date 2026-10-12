@@ -1,0 +1,63 @@
+# The monitor server: Prometheus, Alertmanager and the rules; removes the retired morning report.
+
+- name: Prometheus and Alertmanager
+  ansible.builtin.apt:
+    name: [prometheus, prometheus-alertmanager]
+    state: present
+
+- name: Take off what an earlier run added for notifications (1 Oct 2026)
+  ansible.builtin.shell: |
+    systemctl disable --now lab-morning-report.timer 2>/dev/null || true
+    rm -f /etc/systemd/system/lab-morning-report.timer /etc/systemd/system/lab-morning-report.service /usr/local/sbin/lab-morning-report
+    rm -rf /etc/lab-monitor
+    systemctl daemon-reload
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Prometheus's settings
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: The rules folder
+  ansible.builtin.file:
+    path: /etc/prometheus/rules
+    state: directory
+    mode: "0755"
+
+- name: The alert rules
+  ansible.builtin.copy:
+    src: lab-rules.yml
+    dest: /etc/prometheus/rules/lab.yml
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Check Prometheus's settings and rules before any restart
+  ansible.builtin.command: promtool check config /etc/prometheus/prometheus.yml
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Alertmanager's settings
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /etc/prometheus/alertmanager.yml
+    owner: root
+    group: prometheus
+    mode: "0640"
+  notify: Restart alertmanager
+
+- name: Alertmanager alone, with no cluster port (one server)
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus-alertmanager
+    content: |
+      # Written by Ansible (role monitor).
+      ARGS="--cluster.listen-address="
+    mode: "0644"
+  notify: Restart alertmanager
+
+- name: Check Alertmanager's settings before any restart
+  ansible.builtin.command: amtool check-config /etc/prometheus/alertmanager.yml
+  changed_when: false
+  when: not ansible_check_mode

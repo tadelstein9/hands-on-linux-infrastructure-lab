@@ -1,0 +1,21 @@
+# Put the cluster's hello service in the state its file in Git
+# describes. Runs on optiplex-7080 as tom with kubectl and ~/.kube/config; no sudo.
+#   cd ~/lab-ansible && ansible-playbook deploy-hello.yml
+# To undo a bad change: git revert the commit, then run this playbook again.
+- name: The hello service matches k8s/hello/hello.yaml
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Apply the file from Git
+      ansible.builtin.command: kubectl apply -f {{ playbook_dir }}/k8s/hello/hello.yaml
+      register: apply
+      changed_when: "' configured' in apply.stdout or ' created' in apply.stdout"
+
+    - name: Wait for the rollout to finish
+      ansible.builtin.command: kubectl -n lab rollout status deployment/hello --timeout=120s
+      changed_when: false
+
+    - name: Show what changed
+      ansible.builtin.debug:
+        var: apply.stdout_lines

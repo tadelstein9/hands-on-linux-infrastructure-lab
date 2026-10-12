@@ -1,0 +1,37 @@
+# Rotate the domain's Administrator password to the one in optiplex-9020's vault.
+# Every task that touches the password carries no_log: true, so the password
+# never reaches the screen or a log. Check mode skips the commands.
+#   ansible-playbook rotate-admin.yml -K
+- name: Rotate the domain's Administrator password
+  hosts: servers
+  become: true
+  tasks:
+    - name: Set the new password in the domain
+      ansible.builtin.command:
+        argv: [samba-tool, user, setpassword, Administrator, "--newpassword={{ vault_samba_admin_password }}"]
+      no_log: true
+
+    - name: Prove it with a Kerberos login
+      ansible.builtin.command:
+        cmd: kinit Administrator
+        stdin: "{{ vault_samba_admin_password }}"
+      no_log: true
+      changed_when: false
+
+    - name: Show the ticket that login earned
+      ansible.builtin.command: klist
+      register: rotate_klist
+      changed_when: false
+
+    - name: Report the ticket, no password in it
+      ansible.builtin.debug:
+        msg: "{{ rotate_klist.stdout_lines }}"
+
+    - name: Forget the ticket
+      ansible.builtin.command: kdestroy
+      changed_when: false
+
+    - name: Remove the old password file; the vault on optiplex-7080 is its one home now
+      ansible.builtin.file:
+        path: /root/lab-admin-password.txt
+        state: absent

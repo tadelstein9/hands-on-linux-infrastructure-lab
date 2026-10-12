@@ -1,0 +1,18 @@
+# optiplex-7080, the command center.
+# A reserved K3s agent on its wired address (the wireless is .95).
+k3s_node_ip: 192.168.12.16
+k3s_flannel_iface: eno1
+k3s_reserved: true
+k3s_ufw_rules: []
+# Backups to optiplex-9020. The two secrets that live only here go in the
+# encrypted backup: the Vault password file and the cluster's admin file.
+lab_ip: 192.168.12.16
+backup_repo_host: optiplex-9020
+backup_paths:
+  - /etc
+  - /home/tom/lab-ansible
+  - /home/tom/.config/lab-ansible
+  - /home/tom/.kube
+  # Velero's key to the lab's object storage; it is kept only here.
+  - /home/tom/.config/lab-velero
+backup_excludes: ["__pycache__"]

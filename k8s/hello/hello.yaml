@@ -1,0 +1,83 @@
+# The lab's first service. Two copies of a small web program that
+# answers with the name of the pod that served the request, one copy per node,
+# published through Traefik at http://<node>/hello.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab
+  labels:
+    # The K3s docs warn that a pod with NET_RAW can attack Flannel's network.
+    # The restricted profile refuses any pod that asks for it.
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  namespace: lab
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: hello }
+  template:
+    metadata:
+      labels: { app: hello }
+    spec:
+      # One copy on each node: never two on the same computer. Reserved nodes
+      # (optiplex-9020, optiplex-7080) take no copies, so leave them out of the count.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          # Count only copies of this version. During an update the old copies
+          # still run; counted with the new ones, they pushed both new copies
+          # onto precision (30 Sept).
+          matchLabelKeys: [pod-template-hash]
+          labelSelector:
+            matchLabels: { app: hello }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: whoami
+          # traefik/whoami v1.12.0, pinned by digest (Docker Hub, 29 July 2026).
+          image: traefik/whoami:v1.12.0@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
+          args: ["--port=8080"]
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+  namespace: lab
+spec:
+  selector: { app: hello }
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello
+  namespace: lab
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /hello
+            pathType: Prefix
+            backend:
+              service:
+                name: hello
+                port: { number: 80 }

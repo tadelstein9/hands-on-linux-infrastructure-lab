@@ -1,0 +1,22 @@
+# precision, the inference server: SSH from the command center only. Ollama
+# listens on precision itself, not on the network, so it needs no rule.
+harden_ssh_allow_users:
+  - tom@192.168.12.16
+  - tom@192.168.12.95
+harden_ufw_rules:
+  - { rule: limit, from: 192.168.12.16, port: 22, comment: "SSH from the command center, optiplex-7080" }
+  - { rule: limit, from: 192.168.12.95, port: 22, comment: "SSH backup route: optiplex-7080 wireless" }
+# The K3s server. It speaks for itself on its one wired address.
+k3s_node_ip: 192.168.12.17
+k3s_flannel_iface: eno1
+k3s_ufw_rules:
+  - { from: 192.168.12.16, port: 6443, proto: tcp, comment: "K3s API: kubectl on optiplex-7080" }
+  - { from: 192.168.12.95, port: 6443, proto: tcp, comment: "K3s API: kubectl on optiplex-7080 wireless" }
+# precision backs up to optiplex-9020, and holds optiplex-9020's backups.
+lab_ip: 192.168.12.17
+backup_repo_host: optiplex-9020
+backup_pre: k3s
+backup_paths: [/etc, /var/backups/k3s, /var/lib/rancher/k3s/storage]
+backup_ssh_allow: [restic@192.168.12.15]
+backup_ufw_rules:
+  - { from: 192.168.12.15, comment: "restic backups from optiplex-9020" }

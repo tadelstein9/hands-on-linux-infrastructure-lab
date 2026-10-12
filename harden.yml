@@ -1,0 +1,9 @@
+# Harden the lab. Run it with --check first; that run reports and changes nothing.
+#   ansible-playbook harden.yml -K --check
+#   ansible-playbook harden.yml -K --limit precision     (one computer)
+# Before any change, each computer schedules an undo command (10 minutes).
+- name: Harden the lab
+  hosts: lab
+  become: true
+  roles:
+    - harden

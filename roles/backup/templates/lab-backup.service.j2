@@ -1,0 +1,14 @@
+[Unit]
+Description=Lab backup of {{ inventory_hostname }} to {{ backup_repo_host }} (restic)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# After a wake from sleep the timer starts a missed run at once, before the
+# network returns (11 Oct 2026: "No route to host" three seconds after the card
+# came back). Wait up to two minutes for {{ backup_repo_host }}'s SSH port first.
+ExecStartPre=/bin/bash -c 'for i in $$(seq 24); do timeout 3 bash -c "</dev/tcp/{{ hostvars[backup_repo_host].ansible_host | default(backup_repo_host) }}/22" 2>/dev/null && exit 0; sleep 5; done; echo "{{ backup_repo_host }} port 22 did not answer in two minutes"; exit 1'
+ExecStart=/usr/local/sbin/lab-backup
+Nice=10
+IOSchedulingClass=idle

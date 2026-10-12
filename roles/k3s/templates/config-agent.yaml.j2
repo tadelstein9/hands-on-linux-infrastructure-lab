@@ -1,0 +1,10 @@
+# K3s agent on {{ inventory_hostname }}. Written by the lab's k3s role.
+server: https://{{ k3s_server_ip }}:6443
+token-file: /etc/rancher/k3s/token
+node-ip: {{ k3s_node_ip }}
+flannel-iface: {{ k3s_flannel_iface }}
+{% if k3s_reserved | default(false) %}
+# Reserved: Kubernetes places work here only when a manifest tolerates this taint.
+node-taint:
+  - "lab/reserved=true:NoSchedule"
+{% endif %}

@@ -1,0 +1,18 @@
+# Bring a computer's packages up to date, the safe way: upgrade, never remove.
+- name: Refresh the package lists
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install every safe upgrade
+  ansible.builtin.apt:
+    upgrade: safe
+
+- name: Look for Ubuntu's reboot flag
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: reboot_flag
+
+- name: Say whether this computer wants a reboot
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}: {{ 'reboot requested; reboot only when the owner approves' if reboot_flag.stat.exists else 'no reboot requested' }}"

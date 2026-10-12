@@ -1,0 +1,7 @@
+#!/bin/sh
+# Put SSH and UFW back as they stood before the harden role ran.
+cp -a /root/before-harden/sshd_config.d/. /etc/ssh/sshd_config.d/
+[ -e /root/before-harden/no-hardening-file ] && rm -f /etc/ssh/sshd_config.d/10-lab-hardening.conf
+cp -a /root/before-harden/ufw/. /etc/ufw/
+if grep -q '^ENABLED=yes' /root/before-harden/ufw/ufw.conf; then ufw reload; else ufw --force disable; fi
+systemctl reload ssh

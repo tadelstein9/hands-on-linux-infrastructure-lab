@@ -1,0 +1,66 @@
+# Harden a computer the way the engineer first hardened inspiron by hand: SSH by key only, no
+# root login, named users from named addresses, and UFW admitting only what the
+# computer serves. An undo command is scheduled before anything changes.
+
+- name: Save SSH's and UFW's settings before any change
+  ansible.builtin.shell: |
+    set -e
+    rm -rf /root/before-harden && mkdir -p /root/before-harden
+    cp -a /etc/ssh/sshd_config.d /root/before-harden/
+    cp -a /etc/ufw /root/before-harden/
+    [ -e /etc/ssh/sshd_config.d/10-lab-hardening.conf ] || touch /root/before-harden/no-hardening-file
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Write the undo command
+  ansible.builtin.template:
+    src: lab-harden-undo.sh.j2
+    dest: /root/lab-harden-undo.sh
+    mode: "0700"
+  when: not ansible_check_mode
+
+- name: Schedule the undo command
+  ansible.builtin.command: >
+    systemd-run --on-active={{ harden_undo_minutes * 60 }}
+    --unit=lab-harden-rollback /bin/sh /root/lab-harden-undo.sh
+  when: not ansible_check_mode
+
+- name: SSH by key only, from the named users and addresses
+  ansible.builtin.template:
+    src: 10-lab-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-lab-hardening.conf
+    mode: "0644"
+  notify: Reload SSH
+
+- name: Check SSH's whole configuration before any reload
+  ansible.builtin.command: sshd -t
+  changed_when: false
+
+- name: Firewall rules this computer needs
+  community.general.ufw:
+    rule: "{{ item.rule }}"
+    from_ip: "{{ item.from | default('any') }}"
+    to_port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ harden_ufw_rules }}"
+  loop_control:
+    label: "{{ item.comment }}"
+
+- name: Deny what comes in unasked, allow what goes out
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    default: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+
+- name: Turn the firewall on
+  community.general.ufw:
+    state: enabled
+
+- name: Say how to keep the change
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: prove a new SSH login from optiplex-7080, then cancel
+      the undo command: sudo systemctl stop lab-harden-rollback.timer

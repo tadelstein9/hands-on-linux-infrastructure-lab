@@ -1,0 +1,13 @@
+# Alertmanager on {{ inventory_hostname }}. Written by Ansible (role monitor).
+# Alerts are grouped and shown on Alertmanager's own page (port 9093). The lab
+# sends nothing out; a reader adds a receiver of their own (e-mail, a chat
+# webhook) under receivers.
+route:
+  receiver: none
+  group_by: ['alertname', 'host']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: none

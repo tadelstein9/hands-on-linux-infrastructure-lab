@@ -1,0 +1,5 @@
+# The mail server's name and domain, the network allowed to reach it, and the undo window.
+mail_fqdn: mail.lab.internal
+mail_domain: lab.internal
+mail_lan: 192.168.12.0/24
+mail_undo_minutes: 15

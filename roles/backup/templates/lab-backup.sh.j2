@@ -1,0 +1,26 @@
+#!/bin/bash
+# Nightly backup of {{ inventory_hostname }} to {{ backup_repo_host }} with restic.
+# Written by Ansible (role backup). Run by lab-backup.service; by hand: sudo systemctl start lab-backup
+set -euo pipefail
+. /etc/lab-backup/env
+export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE
+{% if backup_pre == 'samba' %}
+# The domain: samba-tool's offline backup, with proper locking, into one tar file.
+rm -rf /var/backups/samba && mkdir -p -m 700 /var/backups/samba
+samba-tool domain backup offline --targetdir=/var/backups/samba
+{% elif backup_pre == 'k3s' %}
+# K3s: a consistent copy of the SQLite datastore, and the server token the K3s docs
+# say to keep with it ("If you do not use the same token value when restoring, the
+# snapshot will be unusable").
+rm -rf /var/backups/k3s && mkdir -p -m 700 /var/backups/k3s
+sqlite3 /var/lib/rancher/k3s/server/db/state.db ".backup '/var/backups/k3s/state.db'"
+cp -a /var/lib/rancher/k3s/server/token /var/backups/k3s/token
+{% endif %}
+restic backup --one-file-system --exclude-caches \
+{% for x in backup_excludes %}  --exclude '{{ x }}' \
+{% endfor %}  --tag nightly \
+{% for p in backup_paths %}  '{{ p }}' \
+{% endfor %}  ;
+restic forget --tag nightly --keep-daily {{ backup_keep_daily }} --keep-weekly {{ backup_keep_weekly }} --keep-monthly {{ backup_keep_monthly }} --prune
+# Sundays: read the repository's structure back and check it.
+if [ "$(date +%u)" = 7 ]; then restic check; fi

@@ -1,0 +1,56 @@
+# Give the domain controller an audit trail: every domain login, failed or
+# accepted (auth_audit, levels 2 and 3), and every password change or reset
+# (dsdb_password_audit, level 5), each in a file of its own. Source: smb.conf(5)
+# on optiplex-9020, "log level". Check mode first:  ansible-playbook audit.yml -K --check
+- name: Audit the domain's logins and password changes
+  hosts: servers
+  become: true
+  vars:
+    audit_log_level: "1 auth_audit:3@/var/log/samba/auth-audit.log dsdb_password_audit:5@/var/log/samba/password-audit.log"
+  tasks:
+    - name: Save Samba's settings, then schedule the undo command
+      ansible.builtin.shell: |
+        cp -p /etc/samba/smb.conf /root/smb.conf.before-audit
+        systemd-run --on-active=600 --unit=lab-audit-rollback /bin/sh -c \
+          'cp -p /root/smb.conf.before-audit /etc/samba/smb.conf; smbcontrol all reload-config'
+      when: not ansible_check_mode
+
+    - name: Log every domain login and password change to files of their own
+      community.general.ini_file:
+        path: /etc/samba/smb.conf
+        section: global
+        option: log level
+        value: "{{ audit_log_level }}"
+        mode: "0644"
+      notify: Reload Samba
+
+    - name: Check Samba's settings before any reload
+      ansible.builtin.command: testparm -s --suppress-prompt
+      changed_when: false
+
+    - name: Rotate the audit files weekly and keep five, like the lab's login logs
+      ansible.builtin.copy:
+        dest: /etc/logrotate.d/samba-audit
+        mode: "0644"
+        content: |
+          /var/log/samba/auth-audit.log /var/log/samba/password-audit.log {
+              weekly
+              rotate 5
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+          }
+
+    - name: Say how to keep the change
+      ansible.builtin.debug:
+        msg: "Prove a domain login lands in /var/log/samba/auth-audit.log, then: sudo systemctl stop lab-audit-rollback.timer"
+
+  handlers:
+    # smbcontrol reload-config created the audit files but did not start the
+    # logging in the domain controller's Kerberos service; a restart did (lab, 29 Sept).
+    - name: Reload Samba
+      ansible.builtin.systemd:
+        name: samba-ad-dc
+        state: restarted

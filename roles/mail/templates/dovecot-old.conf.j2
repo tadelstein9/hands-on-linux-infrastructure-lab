@@ -1,0 +1,27 @@
+# The STAND-IN old server for the migration test: a second Dovecot, on 127.0.0.1:10143 only,
+# holding one synthetic mailbox. It plays the part of the district's old Exchange server.
+base_dir = /run/dovecot-old
+instance_name = dovecot-old
+protocols = imap
+listen = 127.0.0.1
+ssl = no
+disable_plaintext_auth = no
+log_path = /var/log/dovecot-old.log
+mail_location = maildir:/srv/oldmail/Maildir
+passdb {
+  driver = passwd-file
+  args = scheme=PLAIN username_format=%u /etc/dovecot-old/users
+}
+userdb {
+  driver = static
+  args = uid=vmail gid=vmail home=/srv/oldmail
+}
+service imap-login {
+  inet_listener imap {
+    address = 127.0.0.1
+    port = 10143
+  }
+}
+service anvil {
+  chroot =
+}

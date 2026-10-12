@@ -1,0 +1,58 @@
+# Nightly backups with restic, each computer to a different one.
+# Run it with --check first; that run reports and changes nothing.
+#   cd ~/lab-ansible && ansible-playbook backup.yml -K --check
+# The repository hosts schedule an undo command (15 minutes) before SSH and UFW change.
+- name: The computers that hold backups
+  hosts: backup_repo
+  become: true
+  tasks:
+    - name: Repository host
+      ansible.builtin.include_role:
+        name: backup
+        tasks_from: repo
+      # -e skip_repo=true leaves SSH, UFW and the undo command alone, for a run
+      # that only changes what the clients back up.
+      when: not (skip_repo | default(false) | bool)
+
+- name: Every computer backs itself up
+  hosts: backup_client
+  become: true
+  tasks:
+    - name: Backup client
+      ansible.builtin.include_role:
+        name: backup
+        tasks_from: client
+
+- name: The first backup, now, and what each repository holds
+  hosts: backup_client
+  become: true
+  tasks:
+    - name: Run the backup once
+      ansible.builtin.systemd:
+        name: lab-backup.service
+        state: started
+      when: not ansible_check_mode
+
+    - name: List the snapshots
+      ansible.builtin.shell: |
+        set -a; . /etc/lab-backup/env; set +a
+        restic snapshots --compact
+      register: backup_snapshots
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Show them
+      ansible.builtin.debug:
+        var: backup_snapshots.stdout_lines
+      when: not ansible_check_mode
+
+- name: Say how to keep the change
+  hosts: backup_repo
+  gather_facts: false
+  tasks:
+    - name: Stop the undo commands after a new SSH login works
+      when: not (skip_repo | default(false) | bool)
+      ansible.builtin.debug:
+        msg: >-
+          Prove a new SSH login from optiplex-7080 to optiplex-9020 and precision, then cancel
+          the undo command on each: sudo systemctl stop lab-backup-rollback.timer

@@ -1,0 +1,10 @@
+# In check mode nothing is installed, so nothing is restarted.
+- name: Restart node exporter
+  ansible.builtin.systemd: { name: prometheus-node-exporter, state: restarted }
+  when: not ansible_check_mode
+- name: Restart prometheus
+  ansible.builtin.systemd: { name: prometheus, state: restarted }
+  when: not ansible_check_mode
+- name: Restart alertmanager
+  ansible.builtin.systemd: { name: prometheus-alertmanager, state: restarted }
+  when: not ansible_check_mode

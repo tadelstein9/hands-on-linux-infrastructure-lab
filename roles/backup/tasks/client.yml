@@ -1,0 +1,97 @@
+# A computer that backs itself up: restic, its own key and password, a repository
+# on another computer, and a nightly timer.
+
+- name: restic, and sqlite3 where K3s keeps its datastore
+  ansible.builtin.apt:
+    name: "{{ ['restic'] + (['sqlite3'] if backup_pre == 'k3s' else []) }}"
+    state: present
+
+- name: A key for backups only, made on this computer
+  ansible.builtin.command: ssh-keygen -t ed25519 -N "" -C "restic@{{ inventory_hostname }}" -f /root/.ssh/restic_ed25519
+  args:
+    creates: /root/.ssh/restic_ed25519
+
+- name: Read the public half of that key
+  ansible.builtin.slurp:
+    src: /root/.ssh/restic_ed25519.pub
+  register: backup_pubkey
+  when: not ansible_check_mode
+
+- name: The repository host accepts the key, for file transfer only, from this computer only
+  ansible.posix.authorized_key:
+    user: restic
+    key: "{{ backup_pubkey.content | b64decode | trim }}"
+    key_options: 'restrict,command="internal-sftp",from="{{ lab_ip }}"'
+  delegate_to: "{{ backup_repo_host }}"
+  # One client at a time: three clients writing optiplex-9020's authorized_keys at once
+  # collided on creating ~restic/.ssh (30 Sept).
+  throttle: 1
+  when: not ansible_check_mode
+
+- name: How root reaches the repository host
+  ansible.builtin.blockinfile:
+    path: /root/.ssh/config
+    create: true
+    mode: "0600"
+    marker: "# {mark} lab backup (Ansible, role backup)"
+    block: |
+      Host lab-backup-repo
+        HostName {{ hostvars[backup_repo_host].lab_ip }}
+        User restic
+        IdentityFile /root/.ssh/restic_ed25519
+        IdentitiesOnly yes
+        StrictHostKeyChecking accept-new
+        ServerAliveInterval 60
+        ServerAliveCountMax 240
+
+- name: A password for this computer's repository, made here and never shown by Ansible
+  ansible.builtin.shell: |
+    set -e
+    umask 077
+    mkdir -p /root/.config/restic /etc/lab-backup
+    openssl rand -base64 24 > /root/.config/restic/password
+  args:
+    creates: /root/.config/restic/password
+
+- name: A folder for the backup's settings
+  ansible.builtin.file:
+    path: /etc/lab-backup
+    state: directory
+    mode: "0700"
+
+- name: Where the repository lives
+  ansible.builtin.copy:
+    dest: /etc/lab-backup/env
+    mode: "0600"
+    content: |
+      RESTIC_REPOSITORY=sftp:lab-backup-repo:{{ hostvars[backup_repo_host].backup_repo_root | default(backup_repo_root) }}/{{ inventory_hostname }}
+      RESTIC_PASSWORD_FILE=/root/.config/restic/password
+
+- name: Make the repository the first time
+  ansible.builtin.shell: |
+    set -a; . /etc/lab-backup/env; set +a
+    restic cat config >/dev/null 2>&1 || restic init
+  register: backup_init
+  changed_when: "'created restic repository' in backup_init.stdout"
+  when: not ansible_check_mode
+
+- name: The backup program
+  ansible.builtin.template:
+    src: lab-backup.sh.j2
+    dest: /usr/local/sbin/lab-backup
+    mode: "0700"
+
+- name: The service and the nightly timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-backup.service, lab-backup.timer]
+
+- name: Turn the timer on
+  ansible.builtin.systemd:
+    name: lab-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not ansible_check_mode

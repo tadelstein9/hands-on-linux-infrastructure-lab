@@ -1,0 +1,31 @@
+#!/bin/bash
+# Numbers the node exporter cannot see by itself, written each minute
+# for its textfile collector. Written by Ansible (role monitor).
+out=/var/lib/prometheus/node-exporter/lab.prom
+tmp=$(mktemp /var/lib/prometheus/node-exporter/.lab.XXXXXX)
+emit() { echo "$1" >> "$tmp"; }
+# Can this computer reach the Internet?
+if curl -fsS -m 10 -o /dev/null {{ monitor_internet_probe }}; then emit "lab_internet_up 1"; else emit "lab_internet_up 0"; fi
+# The last run of a systemd service: did it succeed, and when did it finish?
+unit_metrics() { # unit metric-prefix
+  systemctl cat "$1" >/dev/null 2>&1 || return 0
+  # While a run is under way, say so, and judge only a finished run.
+  if [ "$(systemctl show "$1" -p ActiveState --value)" = activating ]; then emit "${2}_running 1"; return 0; fi
+  emit "${2}_running 0"
+  res=$(systemctl show "$1" -p Result --value)
+  ts=$(systemctl show "$1" -p ExecMainExitTimestamp --value)
+  [ "$res" = success ] && ok=1 || ok=0
+  if [ -n "$ts" ]; then sec=$(date -d "$ts" +%s); else sec=0; ok=0; fi
+  emit "${2}_ok $ok"
+  emit "${2}_last_run_seconds $sec"
+}
+unit_metrics lab-backup.service lab_backup
+{% if inventory_hostname in groups['k3s_server'] %}
+# The inference server, and the cluster nodes that must be Ready.
+if curl -fsS -m 10 -o /dev/null http://127.0.0.1:11434/api/version; then emit "lab_ollama_up 1"; else emit "lab_ollama_up 0"; fi
+ready=$(k3s kubectl get nodes --no-headers 2>/dev/null | awk '$2 ~ /^Ready/ {print $1}' | grep -c -x -E '{{ monitor_k3s_required | join("|") }}')
+emit "lab_k3s_required_ready ${ready:-0}"
+emit "lab_k3s_required_total {{ monitor_k3s_required | length }}"
+{% endif %}
+chmod 644 "$tmp"
+mv "$tmp" "$out"

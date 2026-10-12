@@ -1,0 +1,37 @@
+# Dovecot for {{ mail_domain }}, written by the mail role. IMAP over TLS on 993 only;
+# LMTP for Postfix's deliveries; passwords checked by PAM (and so by SSSD and the domain).
+protocols = imap lmtp
+ssl = required
+ssl_cert = </etc/dovecot/private/mail.crt
+ssl_key = </etc/dovecot/private/mail.key
+auth_mechanisms = plain login
+mail_location = maildir:/var/vmail/%d/%n/Maildir
+
+passdb {
+  driver = pam
+}
+# The domain decides who exists; mail is stored as the vmail user under /var/vmail.
+userdb {
+  driver = passwd
+  override_fields = uid=vmail gid=vmail home=/var/vmail/%d/%n
+}
+
+service imap-login {
+  inet_listener imap {
+    port = 0
+  }
+}
+service lmtp {
+  unix_listener /var/spool/postfix/private/dovecot-lmtp {
+    mode = 0600
+    user = postfix
+    group = postfix
+  }
+}
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}

@@ -1,0 +1,7 @@
+# Keys only, from the command center only.
+# Written by Ansible (role harden). Change it in ~/lab-ansible, not here.
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+AllowUsers {{ harden_ssh_allow_users | join(' ') }}

@@ -1,0 +1,51 @@
+# Every computer: the node exporter, and the lab's own numbers each minute.
+
+- name: The node exporter
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+
+- name: Read extra numbers from the lab's metrics folder
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus-node-exporter
+    content: |
+      # Written by Ansible (role monitor).
+      ARGS="--collector.textfile.directory=/var/lib/prometheus/node-exporter"
+    mode: "0644"
+  notify: Restart node exporter
+
+- name: The metrics folder
+  ansible.builtin.file:
+    path: /var/lib/prometheus/node-exporter
+    state: directory
+    mode: "0755"
+
+- name: The lab-metrics program
+  ansible.builtin.template:
+    src: lab-metrics.sh.j2
+    dest: /usr/local/sbin/lab-metrics
+    mode: "0755"
+
+- name: Its service and its one-minute timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-metrics.service, lab-metrics.timer]
+
+- name: Turn the timer on
+  ansible.builtin.systemd:
+    name: lab-metrics.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Let Prometheus on the monitor server read the node exporter
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ hostvars[monitor_server].lab_ip }}"
+    to_port: "9100"
+    proto: tcp
+    comment: "node exporter, read by Prometheus on {{ monitor_server }}"
+  when: inventory_hostname != monitor_server
